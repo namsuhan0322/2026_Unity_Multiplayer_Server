@@ -14,6 +14,11 @@ public class FusionBootstrap : MonoBehaviour, INetworkRunnerCallbacks
     [SerializeField] private NetworkPrefabRef playerPrefab;                             // 네트워크에 등록된 프리팹
     [SerializeField] private Transform[] spawnPoints;                                   // 스폰 위치 설정
 
+    [Header("Pickable Box")]
+    [SerializeField] private NetworkPrefabRef pickableBoxPrefab;
+    [SerializeField] private Transform[] boxSpawnPoints;
+    private bool boxedSpawned = false;
+
     private Dictionary<PlayerRef, NetworkObject> playerObjects = new();
 
     private NetworkRunner runner;
@@ -21,6 +26,7 @@ public class FusionBootstrap : MonoBehaviour, INetworkRunnerCallbacks
     public struct NetworkInputData : INetworkInput
     {
         public Vector2 move;
+        public float cameraYaw;
         public NetworkButtons buttons; 
     }
 
@@ -28,6 +34,7 @@ public class FusionBootstrap : MonoBehaviour, INetworkRunnerCallbacks
     {
         Fire = 0,
         Jump = 1,
+        Pickup= 2,
     }
 
     public void StartHost() => _ = StartGame(GameMode.Host);
@@ -61,8 +68,35 @@ public class FusionBootstrap : MonoBehaviour, INetworkRunnerCallbacks
             SceneManager = SceneManager
         });
 
-        if (result.Ok) Debug.Log($"[Fusion] Game started successfully as {mode} / {sessionName}");
-        else Debug.LogError($"[Fusion] Failed to start game: {result.ShutdownReason}");
+        if (result.Ok)
+        {
+            Debug.Log($"[Fusion] Game started successfully as {mode} / {sessionName}");
+
+            if (runner.IsServer) SpawnBoxes();
+        }
+        else
+        { 
+            Debug.LogError($"[Fusion] Failed to start game: {result.ShutdownReason}"); 
+        }
+    }
+
+    public void SpawnBoxes()
+    {
+        if (!runner.IsServer) return;
+        if (boxedSpawned) return;
+
+        boxedSpawned = true;
+
+        if (boxSpawnPoints == null || boxSpawnPoints.Length == 0) return;
+
+        foreach(var point in boxSpawnPoints)
+        {
+            if (point == null) continue;
+
+            runner.Spawn(pickableBoxPrefab, point.position, point.rotation, null);
+        }
+
+        Debug.Log($"상자 {boxSpawnPoints.Length} 개 생성 완료");
     }
 
     #region INetworkRunnerCallbacks
@@ -82,6 +116,7 @@ public class FusionBootstrap : MonoBehaviour, INetworkRunnerCallbacks
         );
 
         playerObjects[player] = obj;
+        runner.SetPlayerObject(player, obj);
     }
     public void OnPlayerLeft(NetworkRunner runner, PlayerRef player) 
     { 
@@ -105,9 +140,12 @@ public class FusionBootstrap : MonoBehaviour, INetworkRunnerCallbacks
             Input.GetAxisRaw("Vertical")
         );
 
+        data.cameraYaw = SimplePlayer.LocalCameraYaw;
+
         var buttons = new NetworkButtons();                                 // 네트워크 버튼 생성
         buttons.Set((int)InputButton.Fire, Input.GetMouseButton(0));        // 마우스 버튼
         buttons.Set((int)InputButton.Jump, Input.GetKey(KeyCode.Space));    // 점프 버튼 
+        buttons.Set((int)InputButton.Pickup, Input.GetKey(KeyCode.E));      // 물건 상호작용 버튼
 
         data.buttons = buttons;
 
